@@ -52,7 +52,6 @@ public struct Mail {
 
         headers["Subject"] = subject
         headers["MIME-Version"] = "1.0"
-        headers["Content-Type"] = contentType.rawValue
         
         return headers
     }

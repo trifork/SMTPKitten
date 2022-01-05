@@ -29,14 +29,15 @@ final class SMTPClientOutboundHandler: MessageToByteEncoder {
         case .startMailData:
             out.writeStaticString("DATA")
         case .mailData(let mail):
-            var headersText = ""
+            var mailData = ""
             for header in mail.headers {
-                headersText += "\(header.key): \(header.value)\r\n"
+                mailData += "\(header.key): \(header.value)\r\n"
             }
-            headersText += "Content-Type: text/plain; charset=\"utf-8\"\r\n"
-            headersText += "Content-Transfer-Encoding: 7bit\r\n"
-            out.writeString(headersText)
-            out.writeString("\r\n\(mail.text)\r\n.")
+            mailData += "Content-Type: \(mail.contentType.rawValue); charset=\"utf-8\"\r\n"
+            mailData += "\r\n"
+            mailData += mail.text
+            mailData += "\r\n." // mail data termination sequence <crlf>.<crlf>, see below for second <crlf>
+            out.writeString(mailData)
         case .starttls:
             out.writeStaticString("STARTTLS")
         case .authenticatePlain:
