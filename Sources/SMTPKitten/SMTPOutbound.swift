@@ -71,72 +71,73 @@ final class SMTPClientInboundHandler: ByteToMessageDecoder {
     }
     
     public func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
-        var messages = [SMTPServerMessage]()
-        
-        while buffer.readableBytes > 0 {
-            guard let responseCode = try getResponseCode(buffer: &buffer) else {
-                self.context.disconnect()
-                throw SMTPError.incompleteMessage
-            }
-            
-            guard let message = try getResponseMessage(buffer: &buffer) else {
-                self.context.disconnect()
-                throw SMTPError.incompleteMessage
-            }
-            
-            messages.append(SMTPServerMessage(code: responseCode, message: message))
+        guard let rawSMTPServerMessages = try buffer.rawSMTPServerMessages() else {
+            return .needMoreData
         }
-
+        let messages = try rawSMTPServerMessages.map { try SMTPServerMessage(string: $0) }
+        guard messages.last?.isClosingMessage == true else {
+            return .needMoreData
+        }
+        
+        buffer.moveReaderIndex(to: buffer.writerIndex)
         self.context.receive(messages)
         return .continue
     }
     
-    func getResponseCode(buffer: inout ByteBuffer) throws -> Int? {
-        guard let code = buffer.readString(length: 3) else {
-            throw SMTPError.invalidCode(nil)
-        }
-        
-        guard let responseCode = Int(code) else {
-            throw SMTPError.invalidCode(code)
-        }
-        
-        return responseCode
-    }
-    
-    func getResponseMessage(buffer: inout ByteBuffer) throws -> String? {
-        guard
-            buffer.readableBytes >= 2,
-            let bytes = buffer.getBytes(
-                at: buffer.readerIndex,
-                length: buffer.readableBytes
-            )
-        else {
-            return nil
-        }
-        
-        for i in 0..<bytes.count - 1 {
-            if bytes[i] == cr && bytes[i + 1] == lf {
-                guard
-                    let messageBytes = buffer.readBytes(length: i),
-                    var message = String(bytes: messageBytes, encoding: .utf8)
-                else {
-                    throw SMTPError.invalidMessage
-                }
-                
-                buffer.moveReaderIndex(forwardBy: 2)
-                
-                if message.first == " " || message.first == "-" {
-                    message.removeFirst()
-                }
-                
-                return message
-            }
-        }
-        
-        return nil
-    }
-    
     public func decodeLast(context: ChannelHandlerContext, buffer: inout ByteBuffer, seenEOF: Bool) throws -> DecodingState {
         return try decode(context: context, buffer: &buffer)
+    }
+}
+
+extension ByteBuffer {
+    
+    func rawSMTPServerMessages() throws -> [String]? {
+        guard endsWithCRLF else { return nil }
+        var messages = [String]()
+        var messageStartIndex = readerIndex // The position of the first character in a nonempty string.
+        var messageEndIndex = readerIndex + 1 // A string’s “past the end” position—that is, the position one greater than the last valid subscript argument.
+        while messageEndIndex + 1 < writerIndex {
+            
+            if getInteger(at: messageEndIndex + 0) == cr &&
+               getInteger(at: messageEndIndex + 1) == lf {
+                guard let message = getString(at: messageStartIndex, length: messageEndIndex - messageStartIndex) else {
+                    throw SMTPError.invalidMessage
+                }
+                messages.append(message)
+                messageStartIndex = messageEndIndex + 2
+                messageEndIndex = messageStartIndex + 1
+            }
+            else {
+                messageEndIndex += 1
+            }
+            
+        }
+        return messages
+    }
+    
+    var endsWithCRLF: Bool {
+        guard readableBytes >= 2 else { return false }
+        return getInteger(at: readerIndex + readableBytes - 2) == cr &&
+               getInteger(at: readerIndex + readableBytes - 1) == lf
+    }
+}
+
+extension SMTPServerMessage {
+    
+    init(string: String) throws {
+        guard let code = Int(string.prefix(3)) else { throw SMTPError.invalidMessage }
+        self.code = code
+        
+        guard string.count >= 4 else { throw SMTPError.invalidMessage }
+        switch string[string.index(string.startIndex, offsetBy: 3)] {
+        case "-":
+            isClosingMessage = false
+        case " ":
+            isClosingMessage = true
+        default:
+            throw SMTPError.invalidMessage
+        }
+        
+        message = String(string.suffix(from: string.index(string.startIndex, offsetBy: 4)))
     }
 }

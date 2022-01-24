@@ -28,6 +28,7 @@ public struct SMTPServerMessage {
     }
     let code: Int
     let message: String
+    let isClosingMessage: Bool
 }
 
 public enum SMTPResponseCode: Int {
