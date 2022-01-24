@@ -85,7 +85,15 @@ final class SMTPClientInboundHandler: ByteToMessageDecoder {
     }
     
     public func decodeLast(context: ChannelHandlerContext, buffer: inout ByteBuffer, seenEOF: Bool) throws -> DecodingState {
-        return try decode(context: context, buffer: &buffer)
+        let decodingState: DecodingState
+        if buffer.readableBytes > 0 {
+            decodingState = try decode(context: context, buffer: &buffer)
+        }
+        else {
+            decodingState = .continue
+        }
+        self.context.disconnect()
+        return decodingState
     }
 }
 

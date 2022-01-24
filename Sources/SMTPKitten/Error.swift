@@ -1,4 +1,4 @@
-enum SMTPError: Error {
+public enum SMTPError: Error {
     case invalidCode(String?)
     case invalidMessage, missingHandshake, incompleteMessage
     case startTlsFailure, starttlsUnsupportedByServer

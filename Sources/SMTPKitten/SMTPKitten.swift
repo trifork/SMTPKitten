@@ -32,6 +32,7 @@ private struct OutstandingRequest {
 internal final class SMTPClientContext {
     private var queue = [OutstandingRequest]()
     private var isProcessing = false
+    private var isDisconnected = false
     let eventLoop: EventLoop
     
     init(eventLoop: EventLoop) {
@@ -42,6 +43,11 @@ internal final class SMTPClientContext {
         sendMessage: @escaping () -> EventLoopFuture<Void>
     ) -> EventLoopFuture<[SMTPServerMessage]> {
         eventLoop.flatSubmit {
+            
+            if self.isDisconnected {
+                return self.eventLoop.makeFailedFuture(SMTPError.disconnected)
+            }
+            
             let item = OutstandingRequest(
                 promise: self.eventLoop.makePromise(),
                 sendMessage: sendMessage
@@ -63,6 +69,7 @@ internal final class SMTPClientContext {
         for request in queue {
             request.promise.fail(SMTPError.disconnected)
         }
+        isDisconnected = true
     }
     
     private func processNext() {
